@@ -69,6 +69,73 @@ resource "yandex_container_registry_iam_binding" "hw06_mk8s_nodes_puller_on_regi
   members     = ["serviceAccount:${yandex_iam_service_account.hw06_mk8s_sa_nodes.id}"]
 }
 
+
+# ---------------------- Security Group для MK8s + публичного LB --------------------
+resource "yandex_vpc_security_group" "hw06_mk8s_sg" {
+  name        = "hw06-mk8s-sg"
+  description = "SG for Managed K8s nodes + public LB"
+  network_id  = yandex_vpc_network.hw06_mk8s_vpc.id
+
+  # Egress: всё наружу
+  egress {
+    protocol       = "ANY"
+    description    = "Allow all outbound"
+    v4_cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  # Ingress: внутренний трафик внутри приватных диапазонов
+  ingress {
+    protocol       = "ANY"
+    description    = "Intra-VPC traffic"
+    v4_cidr_blocks = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
+  }
+
+  # Ingress: публичный доступ к NodePort (для Service type=LoadBalancer)
+  ingress {
+    protocol       = "TCP"
+    description    = "Public to NodePort range"
+    from_port      = 30000
+    to_port        = 32767
+    v4_cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  # Ingress: health checks балансировщика (служебная подсеть YC)
+  ingress {
+    protocol       = "TCP"
+    description    = "LB health checks"
+    from_port      = 30000
+    to_port        = 32767
+    v4_cidr_blocks = ["198.18.235.0/24"]
+  }
+
+  ingress {
+    protocol       = "TCP"
+    description    = "LB health checks to kube-proxy /healthz"
+    port           = 10256
+    v4_cidr_blocks = ["198.18.235.0/24"]
+  }
+
+  # (опционально) HTTP/HTTPS (если понадобится напрямую)
+  ingress {
+    protocol       = "TCP"
+    description    = "HTTP"
+    port           = 80
+    v4_cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    protocol       = "TCP"
+    description    = "HTTPS"
+    port           = 443
+    v4_cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+
+resource "yandex_logging_group" "hw06_mk8s_logs" {
+  name             = "hw06-mk8s-logs"
+  retention_period = "168h" # 7 дней, по желанию
+}
+
 # ---------------------- Кластер Kubernetes --------------------
 resource "yandex_kubernetes_cluster" "hw06_mk8s_cluster" {
   name       = "hw06-mk8s-cluster"
@@ -84,6 +151,8 @@ resource "yandex_kubernetes_cluster" "hw06_mk8s_cluster" {
     }
 
     public_ip = true
+
+    security_group_ids = [yandex_vpc_security_group.hw06_mk8s_sg.id]
   }
 
   service_account_id      = yandex_iam_service_account.hw06_mk8s_sa_master.id
@@ -94,6 +163,9 @@ resource "yandex_kubernetes_cluster" "hw06_mk8s_cluster" {
 
   cluster_ipv4_range = "10.96.0.0/16"
   service_ipv4_range = "10.97.0.0/16"
+
+  log_group_id = yandex_logging_group.hw06_mk8s_logs.id
+
 
   labels = {
     env   = "demo"
@@ -133,13 +205,14 @@ resource "yandex_kubernetes_node_group" "hw06_mk8s_nodes" {
     }
 
     boot_disk {
-      type = "network-hdd"
-      size = 20
+      type = "network-ssd"
+      size = 30 # минимум 30 GB
     }
 
     network_interface {
-      subnet_ids = [yandex_vpc_subnet.hw06_mk8s_subnet_a.id]
-      nat        = true
+      subnet_ids         = [yandex_vpc_subnet.hw06_mk8s_subnet_a.id]
+      nat                = true
+      security_group_ids = [yandex_vpc_security_group.hw06_mk8s_sg.id]
     }
 
     scheduling_policy {
@@ -163,6 +236,9 @@ resource "yandex_kubernetes_node_group" "hw06_mk8s_nodes" {
 
   node_taints = []
 }
+
+
+
 
 # ---------------------- Outputs --------------------
 output "cluster_id" {
