@@ -25,10 +25,11 @@ warn() {
 }
 
 # Переменные (настройте под свой проект)
-REGISTRY_NAME="hw06-cr-demo"
-IMAGE_NAME="hw06-app"
-IMAGE_TAG="${1:-1.0}"
-FULL_IMAGE_NAME="${REGISTRY_NAME}.cr.yandex/${IMAGE_NAME}:${IMAGE_TAG}"
+REGISTRY_ID="crpntmihsm5g1vl94dl4"
+IMAGE_NAME="hw06-app" 
+IMAGE_TAG="1.0"
+FULL_IMAGE_NAME="cr.yandex/${REGISTRY_ID}/${IMAGE_NAME}:${IMAGE_TAG}"
+
 
 log "🚀 Развертывание приложения в Kubernetes"
 log "Registry: $REGISTRY_NAME"
